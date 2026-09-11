@@ -62,7 +62,7 @@ def generate_article_with_gemini(client: genai.Client, structured_json: dict) ->
 {json.dumps(structured_json, ensure_ascii=False, indent=2)}
 """
     # models/ プレフィックスを付与して指定
-    res = call_gemini_with_retry(client, 'models/gemini-1.5-flash', prompt)
+    res = call_gemini_with_retry(client, 'gemini-1.5-flash', prompt)
     return res.text
 
 # --- 3. はてなブログAtomPub投稿 (Markdown -> HTML自動変換処理付き) ---
