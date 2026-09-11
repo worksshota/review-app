@@ -5,21 +5,33 @@ import requests
 import markdown
 from google import genai
 
-# --- 1. Gemini API呼び出し (リトライ処理付き) ---
-def call_gemini_with_retry(client: genai.Client, model: str, prompt: str, max_retries: int = 3) -> any:
-    for attempt in range(max_retries):
-        try:
-            response = client.models.generate_content(
-                model=model,
-                contents=prompt
-            )
-            return response
-        except Exception as e:
-            print(f"Gemini API Error (Attempt {attempt + 1}/{max_retries}): {e}")
-            if attempt < max_retries - 1:
-                time.sleep(5)
-            else:
-                raise e
+# --- 1. Gemini API呼び出し (モデル名自動フォールバック機能付き) ---
+def call_gemini_with_retry(client: genai.Client, prompt: str, max_retries: int = 3) -> any:
+    # 試行するモデル名の候補リスト（順にフォールバック）
+    candidate_models = [
+        'gemini-2.5-flash',
+        'gemini-2.0-flash',
+        'models/gemini-2.5-flash',
+        'gemini-1.5-flash-latest'
+    ]
+   
+    last_exception = None
+    for model_name in candidate_models:
+        for attempt in range(max_retries):
+            try:
+                print(f"Gemini API呼び出し試行中: {model_name} (Attempt {attempt + 1})")
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt
+                )
+                return response
+            except Exception as e:
+                print(f"Gemini API Error ({model_name}): {e}")
+                last_exception = e
+                time.sleep(2)
+        print(f"モデル {model_name} で失敗したため次のモデル候補へ切り替えます。")
+       
+    raise last_exception
 
 # --- 2. 記事生成プロンプト (視認性・改行・太字・箇条書き重視) ---
 def generate_article_with_gemini(client: genai.Client, structured_json: dict) -> str:
@@ -34,7 +46,7 @@ def generate_article_with_gemini(client: genai.Client, structured_json: dict) ->
    - メリット、デメリット、おすすめな人・向かない人は、文章でダラダラ書かず、必ず箇条書き（`- `）で記述してください。
    - 各箇条書きの最も重要なキーワード（単語）は、必ず **太字** で強調してください。
 3. **メリット・デメリットの整理**:
-   - 口口コミの出現頻度（高・中・低）に触れつつ、読者が気になる「実際の使い勝手」を具体的に解説してください。
+   - 口コミの出現頻度（高・中・低）に触れつつ、読者が気になる「実際の使い勝手」を具体的に解説してください。
 4. **適切な見出し構成**:
    - 記事全体は以下のH2（`##`）およびH3（`###`）見出し構成に従って作成してください。
 
@@ -61,8 +73,7 @@ def generate_article_with_gemini(client: genai.Client, structured_json: dict) ->
 # 構造化データ:
 {json.dumps(structured_json, ensure_ascii=False, indent=2)}
 """
-    # 新SDKの推奨モデル名「gemini-2.5-flash」を指定
-    res = call_gemini_with_retry(client, 'gemini-2.5-flash', prompt)
+    res = call_gemini_with_retry(client, prompt)
     return res.text
 
 # --- 3. はてなブログAtomPub投稿 (Markdown -> HTML自動変換処理付き) ---
