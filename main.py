@@ -2,6 +2,7 @@ import os
 import re
 import json
 import sys
+import time
 from typing import List, Literal
 from pydantic import BaseModel
 from google import genai
@@ -44,7 +45,6 @@ def fetch_web_reviews(product_name: str, serpapi_key: str) -> List[str]:
     results = search.get_dict()
    
     reviews = []
-    # 検索結果のスニペット（概要文）を収集
     organic_results = results.get("organic_results", [])
     for res in organic_results:
         snippet = res.get("snippet", "")
@@ -65,25 +65,38 @@ def preprocess_reviews(reviews: List[str]) -> List[str]:
             cleaned.append(text)
     return cleaned
 
-# --- 4. Gemini による分析・マージ機能 ---
+# --- 4. 混雑対策用リトライ機能付きGemini呼び出し ---
+def call_gemini_with_retry(client, model, prompt, config=None, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            if config:
+                return client.models.generate_content(model=model, contents=prompt, config=config)
+            return client.models.generate_content(model=model, contents=prompt)
+        except Exception as e:
+            if "503" in str(e) or "UNAVAILABLE" in str(e):
+                print(f"サーバー混雑(503)を検出。{attempt + 1}/{max_retries} 回目の再試行を行います...")
+                time.sleep(5)  # 5秒待機して再試行
+            else:
+                raise e
+    raise Exception("再試行上限に達しました。時間をおいて再実行してください。")
+
+# --- 5. Gemini による分析・マージ機能 ---
 def analyze_and_merge(client: genai.Client, reviews: List[str], product_name: str) -> dict:
     cleaned = preprocess_reviews(reviews)
     text_data = "\n".join(cleaned)
    
     prompt = f"以下のWeb口コミデータを分析・整理してください。\n# 商品名: {product_name}\n# 口コミデータ:\n{text_data}"
    
-    res = client.models.generate_content(
-        model='gemini-3.6-flash',
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=ReviewSummarySchema,
-            temperature=0.1,
-        ),
+    config = types.GenerateContentConfig(
+        response_mime_type="application/json",
+        response_schema=ReviewSummarySchema,
+        temperature=0.1,
     )
+   
+    res = call_gemini_with_retry(client, 'gemini-3.6-flash', prompt, config)
     return json.loads(res.text)
 
-# --- 5. Gemini による記事生成機能 ---
+# --- 6. Gemini による記事生成機能 ---
 def generate_article_with_gemini(client: genai.Client, structured_json: dict) -> str:
     prompt = f"""
 あなたはプロのWebライターです。
@@ -96,13 +109,10 @@ def generate_article_with_gemini(client: genai.Client, structured_json: dict) ->
 # 構造化データ:
 {json.dumps(structured_json, ensure_ascii=False, indent=2)}
 """
-    res = client.models.generate_content(
-        model='gemini-3.6-flash',
-        contents=prompt,
-    )
+    res = call_gemini_with_retry(client, 'gemini-3.6-flash', prompt)
     return res.text
 
-# --- 6. メイン実行処理 ---
+# --- 7. メイン実行処理 ---
 def main():
     print("=== 全自動レビュー記事作成システム開始 ===")
    
@@ -117,8 +127,6 @@ def main():
         sys.exit(1)
 
     client = genai.Client(api_key=g_key)
-   
-    # 検索・レビュー収集したい商品名を設定
     product = "AirPods Pro 第2世代"
    
     # 1. 自動収集
