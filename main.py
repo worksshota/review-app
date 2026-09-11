@@ -2,10 +2,11 @@ import os
 import re
 import json
 import sys
-from typing import List, Literal, Optional
-from pydantic import BaseModel, Field
+from typing import List, Literal
+from pydantic import BaseModel
 from google import genai
 from google.genai import types
+from serpapi import GoogleSearch
 
 # --- 1. データ構造定義 ---
 class ProItem(BaseModel):
@@ -29,7 +30,31 @@ class ReviewSummarySchema(BaseModel):
     cons: List[ConItem]
     target_audience: TargetAudience
 
-# --- 2. 前処理機能 ---
+# --- 2. Webからの口コミ自動収集（SerpAPI） ---
+def fetch_web_reviews(product_name: str, serpapi_key: str) -> List[str]:
+    print(f"Webから「{product_name}」の口コミ・レビューを検索中...")
+    params = {
+        "q": f"{product_name} レビュー 口コミ 感想 評判",
+        "hl": "ja",
+        "gl": "jp",
+        "api_key": serpapi_key
+    }
+   
+    search = GoogleSearch(params)
+    results = search.get_dict()
+   
+    reviews = []
+    # 検索結果のスニペット（概要文）を収集
+    organic_results = results.get("organic_results", [])
+    for res in organic_results:
+        snippet = res.get("snippet", "")
+        if len(snippet) > 20:
+            reviews.append(snippet)
+           
+    print(f"収集されたWeb口コミ数: {len(reviews)}件")
+    return reviews
+
+# --- 3. 前処理機能 ---
 def preprocess_reviews(reviews: List[str]) -> List[str]:
     cleaned, seen = [], set()
     for r in reviews:
@@ -40,50 +65,25 @@ def preprocess_reviews(reviews: List[str]) -> List[str]:
             cleaned.append(text)
     return cleaned
 
-def chunk_text_list(texts: List[str], max_chars: int = 2000) -> List[str]:
-    chunks, current_chunk, current_length = [], [], 0
-    for text in texts:
-        if current_length + len(text) > max_chars and current_chunk:
-            chunks.append("\n".join(current_chunk))
-            current_chunk, current_length = [], 0
-        current_chunk.append(text)
-        current_length += len(text)
-    if current_chunk:
-        chunks.append("\n".join(current_chunk))
-    return chunks
-
-# --- 3. Gemini による分析・マージ機能 ---
+# --- 4. Gemini による分析・マージ機能 ---
 def analyze_and_merge(client: genai.Client, reviews: List[str], product_name: str) -> dict:
     cleaned = preprocess_reviews(reviews)
-    chunks = chunk_text_list(cleaned)
+    text_data = "\n".join(cleaned)
    
-    chunk_jsons = []
-    for chunk in chunks:
-        prompt = f"分析してください。\n# 商品名: {product_name}\n# レビュー:\n{chunk}"
-        res = client.models.generate_content(
-            model='gemini-3.6-flash',
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=ReviewSummarySchema,
-                temperature=0.1,
-            ),
-        )
-        chunk_jsons.append(json.loads(res.text))
+    prompt = f"以下のWeb口コミデータを分析・整理してください。\n# 商品名: {product_name}\n# 口コミデータ:\n{text_data}"
    
-    merge_prompt = f"重複を整理して統合してください。\n# 商品名: {product_name}\n# データ:\n{json.dumps(chunk_jsons, ensure_ascii=False)}"
-    merged_res = client.models.generate_content(
+    res = client.models.generate_content(
         model='gemini-3.6-flash',
-        contents=merge_prompt,
+        contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=ReviewSummarySchema,
-            temperature=0.2,
+            temperature=0.1,
         ),
     )
-    return json.loads(merged_res.text)
+    return json.loads(res.text)
 
-# --- 4. Gemini による最終記事生成機能 ---
+# --- 5. Gemini による記事生成機能 ---
 def generate_article_with_gemini(client: genai.Client, structured_json: dict) -> str:
     prompt = f"""
 あなたはプロのWebライターです。
@@ -102,30 +102,37 @@ def generate_article_with_gemini(client: genai.Client, structured_json: dict) ->
     )
     return res.text
 
-# --- 5. メイン実行処理 ---
+# --- 6. メイン実行処理 ---
 def main():
-    print("=== レビュー自動生成処理（Gemini単体構成）開始 ===")
+    print("=== 全自動レビュー記事作成システム開始 ===")
    
     g_key = os.environ.get("GEMINI_API_KEY")
+    s_key = os.environ.get("SERPAPI_API_KEY")
+   
     if not g_key:
-        print("エラー: GEMINI_API_KEY が取得できませんでした。")
+        print("エラー: GEMINI_API_KEY が未設定です。")
+        sys.exit(1)
+    if not s_key:
+        print("エラー: SERPAPI_API_KEY が未設定です。")
         sys.exit(1)
 
     client = genai.Client(api_key=g_key)
-    product = "ワイヤレスイヤホン Model-X"
    
-    sample_reviews = [
-        "音質が非常にクリアでボーカルの伸びが素晴らしいです。低音もズッシリ効きます。",
-        "長時間つけると右耳が痛くなりました。付属のイヤピースを替えてもイマイチ。",
-        "デザインは高級感があって最高！ケースもスリムでポケットに入りやすい。",
-        "ノイズキャンセリング機能は期待ほど強力ではないです。電車内の音は聞こえます。",
-        "音質最高！バッテリーも公称通りかなり持ちます。通勤用にはピッタリ。"
-    ]
+    # 検索・レビュー収集したい商品名を設定
+    product = "AirPods Pro 第2世代"
+   
+    # 1. 自動収集
+    web_reviews = fetch_web_reviews(product, s_key)
+    if not web_reviews:
+        print("口コミデータが取得できませんでした。処理を停止します。")
+        sys.exit(1)
 
-    print("1. レビュー解析・構造化処理中...")
-    json_data = analyze_and_merge(client, sample_reviews, product)
+    # 2. 口コミの分析と構造化
+    print("\n1. 口コミ解析・構造化処理中...")
+    json_data = analyze_and_merge(client, web_reviews, product)
     print("解析完了!")
 
+    # 3. 記事出力
     print("2. 記事本文を生成中...")
     article = generate_article_with_gemini(client, json_data)
     print("記事生成完了!\n")
