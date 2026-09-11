@@ -2,28 +2,29 @@ name: Daily Review Auto Generator
 
 on:
   schedule:
-    # JST 午前3:00（UTC 18:00）に定期実行
+    # 日本時間 午前3:00（JST）＝ UTC 18:00 に自動起動
     - cron: '0 18 * * *'
   workflow_dispatch:
 
 jobs:
   run-script:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
-      contents: write # リスト自動更新の書き込み権限を許可
+      contents: write
     steps:
-      - name: Check out repository
+      - name: リポジトリをチェックアウト
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Pythonをセットアップ
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Install dependencies
+      - name: 依存関係をインストール
         run: pip install -r requirements.txt
-        
-- name: Run script
+
+      - name: スクリプトを実行
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
@@ -32,7 +33,7 @@ jobs:
           HATENA_API_KEY: ${{ secrets.HATENA_API_KEY }}
         run: python main.py
 
-      - name: Commit and push changes
+      - name: 変更をコミットしてプッシュする
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
