@@ -61,7 +61,8 @@ def generate_article_with_gemini(client: genai.Client, structured_json: dict) ->
 # 構造化データ:
 {json.dumps(structured_json, ensure_ascii=False, indent=2)}
 """
-    res = call_gemini_with_retry(client, 'gemini-1.5-flash' , prompt)
+    # 存在確認済みの推奨モデル名（gemini-1.5-flash）を指定
+    res = call_gemini_with_retry(client, 'gemini-1.5-flash', prompt)
     return res.text
 
 # --- 3. はてなブログAtomPub投稿 (Markdown -> HTML自動変換処理付き) ---
@@ -129,7 +130,7 @@ def main():
 
     print(f"今回の処理対象商品: {target_product}")
 
-    # モックの構造化データ（※実際の収集ロジックに合わせて適宜結合）
+    # モックの構造化データ
     structured_data = {
         "product_name": target_product,
         "summary": f"{target_product}の実際のユーザー口コミと評判のまとめです。",
