@@ -61,8 +61,8 @@ def generate_article_with_gemini(client: genai.Client, structured_json: dict) ->
 # 構造化データ:
 {json.dumps(structured_json, ensure_ascii=False, indent=2)}
 """
-    # 存在確認済みの推奨モデル名（gemini-1.5-flash）を指定
-    res = call_gemini_with_retry(client, 'gemini-1.5-flash', prompt)
+    # models/ プレフィックスを付与して指定
+    res = call_gemini_with_retry(client, 'models/gemini-1.5-flash', prompt)
     return res.text
 
 # --- 3. はてなブログAtomPub投稿 (Markdown -> HTML自動変換処理付き) ---
