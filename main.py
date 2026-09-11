@@ -13,10 +13,9 @@ def main():
    
     if not g_key or not o_key:
         print("\n[エラー原因] GitHubのSecretsにAPIキーが正しく登録されていません。")
-        print("Settings > Secrets and variables > Actions を確認してください。")
         sys.exit(1)
        
-    # 2. ライブラリの読み込みチェック
+    # 2. ライブラリ読み込みチェック
     try:
         from google import genai
         print("google-genai ライブラリ: 読み込み成功")
@@ -31,12 +30,12 @@ def main():
         print(f"openai 読み込み失敗: {e}")
         sys.exit(1)
 
-    # 3. Gemini 接続テスト
+    # 3. Gemini 接続テスト (モデル名を gemini-3.6-flash に更新)
     print("\n--- Gemini API 接続テスト ---")
     try:
         client = genai.Client(api_key=g_key)
         res = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.6-flash',
             contents='Hello',
         )
         print("Gemini API 接続成功！")
@@ -49,7 +48,7 @@ def main():
     try:
         client = OpenAI(api_key=o_key)
         res = client.chat.completions.create(
-            model="gpt-4o-mini",  # テスト用に低価格モデルを使用
+            model="gpt-4o-mini",
             messages=[{"role": "user", "content": "Hello"}]
         )
         print("OpenAI API 接続成功！")
