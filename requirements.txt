@@ -1,5 +1,5 @@
-openai
 google-genai
 pydantic
 requests
 markdown
+google-search-results
