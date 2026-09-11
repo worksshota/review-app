@@ -31,7 +31,30 @@ class ReviewSummarySchema(BaseModel):
     cons: List[ConItem]
     target_audience: TargetAudience
 
-# --- 2. Webからの口コミ自動収集（SerpAPI） ---
+# --- 2. キーワードリスト管理機能 ---
+def get_next_product(file_path="products.txt") -> str:
+    if not os.path.exists(file_path):
+        return None
+    with open(file_path, "r", encoding="utf-8") as f:
+        lines = [line.strip() for line in f.readlines() if line.strip()]
+    if not lines:
+        return None
+    return lines[0]
+
+def remove_processed_product(file_path="products.txt"):
+    if not os.path.exists(file_path):
+        return
+    with open(file_path, "r", encoding="utf-8") as f:
+        lines = [line.strip() for line in f.readlines() if line.strip()]
+    if len(lines) > 1:
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines[1:]) + "\n")
+    else:
+        # 最後の1件が終わったら空ファイルにする
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write("")
+
+# --- 3. Webからの口コミ自動収集（SerpAPI） ---
 def fetch_web_reviews(product_name: str, serpapi_key: str) -> List[str]:
     print(f"Webから「{product_name}」の口コミ・レビューを検索中...")
     params = {
@@ -54,7 +77,7 @@ def fetch_web_reviews(product_name: str, serpapi_key: str) -> List[str]:
     print(f"収集されたWeb口コミ数: {len(reviews)}件")
     return reviews
 
-# --- 3. 前処理機能 ---
+# --- 4. 前処理機能 ---
 def preprocess_reviews(reviews: List[str]) -> List[str]:
     cleaned, seen = [], set()
     for r in reviews:
@@ -65,7 +88,7 @@ def preprocess_reviews(reviews: List[str]) -> List[str]:
             cleaned.append(text)
     return cleaned
 
-# --- 4. 混雑対策用リトライ機能付きGemini呼び出し ---
+# --- 5. 混雑対策用リトライ機能付きGemini呼び出し ---
 def call_gemini_with_retry(client, model, prompt, config=None, max_retries=3):
     for attempt in range(max_retries):
         try:
@@ -75,12 +98,12 @@ def call_gemini_with_retry(client, model, prompt, config=None, max_retries=3):
         except Exception as e:
             if "503" in str(e) or "UNAVAILABLE" in str(e):
                 print(f"サーバー混雑(503)を検出。{attempt + 1}/{max_retries} 回目の再試行を行います...")
-                time.sleep(5)  # 5秒待機して再試行
+                time.sleep(5)
             else:
                 raise e
     raise Exception("再試行上限に達しました。時間をおいて再実行してください。")
 
-# --- 5. Gemini による分析・マージ機能 ---
+# --- 6. Gemini による分析・マージ機能 ---
 def analyze_and_merge(client: genai.Client, reviews: List[str], product_name: str) -> dict:
     cleaned = preprocess_reviews(reviews)
     text_data = "\n".join(cleaned)
@@ -96,7 +119,7 @@ def analyze_and_merge(client: genai.Client, reviews: List[str], product_name: st
     res = call_gemini_with_retry(client, 'gemini-3.6-flash', prompt, config)
     return json.loads(res.text)
 
-# --- 6. Gemini による記事生成機能 ---
+# --- 7. Gemini による記事生成機能 ---
 def generate_article_with_gemini(client: genai.Client, structured_json: dict) -> str:
     prompt = f"""
 あなたはプロのWebライターです。
@@ -112,35 +135,38 @@ def generate_article_with_gemini(client: genai.Client, structured_json: dict) ->
     res = call_gemini_with_retry(client, 'gemini-3.6-flash', prompt)
     return res.text
 
-# --- 7. メイン実行処理 ---
+# --- 8. メイン実行処理 ---
 def main():
     print("=== 全自動レビュー記事作成システム開始 ===")
    
     g_key = os.environ.get("GEMINI_API_KEY")
     s_key = os.environ.get("SERPAPI_API_KEY")
    
-    if not g_key:
-        print("エラー: GEMINI_API_KEY が未設定です。")
-        sys.exit(1)
-    if not s_key:
-        print("エラー: SERPAPI_API_KEY が未設定です。")
+    if not g_key or not s_key:
+        print("エラー: APIキーが正しく設定されていません。")
         sys.exit(1)
 
+    # 次の処理対象商品を取得
+    product = get_next_product()
+    if not product:
+        print("products.txt に処理対象の商品がありません。処理を終了します。")
+        sys.exit(0)
+
+    print(f"【本日処理する対象商品】: {product}")
     client = genai.Client(api_key=g_key)
-    product = "AirPods Pro 第2世代"
    
-    # 1. 自動収集
+    # 1. 口コミ自動収集
     web_reviews = fetch_web_reviews(product, s_key)
     if not web_reviews:
-        print("口コミデータが取得できませんでした。処理を停止します。")
+        print("口コミデータが取得できませんでした。スキップします。")
         sys.exit(1)
 
-    # 2. 口コミの分析と構造化
+    # 2. 解析と構造化
     print("\n1. 口コミ解析・構造化処理中...")
     json_data = analyze_and_merge(client, web_reviews, product)
     print("解析完了!")
 
-    # 3. 記事出力
+    # 3. 記事生成
     print("2. 記事本文を生成中...")
     article = generate_article_with_gemini(client, json_data)
     print("記事生成完了!\n")
@@ -148,6 +174,10 @@ def main():
     print("================== 生成された記事 ==================")
     print(article)
     print("====================================================")
+   
+    # 4. 正常終了したらリストから対象商品を1件削除して更新
+    remove_processed_product()
+    print(f"「{product}」をリストから削除し、次回の準備を完了しました。")
     print("=== すべての工程が正常完了しました ===")
 
 if __name__ == "__main__":
