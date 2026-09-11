@@ -34,7 +34,7 @@ def generate_article_with_gemini(client: genai.Client, structured_json: dict) ->
    - メリット、デメリット、おすすめな人・向かない人は、文章でダラダラ書かず、必ず箇条書き（`- `）で記述してください。
    - 各箇条書きの最も重要なキーワード（単語）は、必ず **太字** で強調してください。
 3. **メリット・デメリットの整理**:
-   - 口コミの出現頻度（高・中・低）に触れつつ、読者が気になる「実際の使い勝手」を具体的に解説してください。
+   - 口口コミの出現頻度（高・中・低）に触れつつ、読者が気になる「実際の使い勝手」を具体的に解説してください。
 4. **適切な見出し構成**:
    - 記事全体は以下のH2（`##`）およびH3（`###`）見出し構成に従って作成してください。
 
@@ -61,8 +61,8 @@ def generate_article_with_gemini(client: genai.Client, structured_json: dict) ->
 # 構造化データ:
 {json.dumps(structured_json, ensure_ascii=False, indent=2)}
 """
-    # models/ プレフィックスを付与して指定
-    res = call_gemini_with_retry(client, 'gemini-1.5-flash', prompt)
+    # 新SDKの推奨モデル名「gemini-2.5-flash」を指定
+    res = call_gemini_with_retry(client, 'gemini-2.5-flash', prompt)
     return res.text
 
 # --- 3. はてなブログAtomPub投稿 (Markdown -> HTML自動変換処理付き) ---
