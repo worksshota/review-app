@@ -5,33 +5,25 @@ import requests
 import markdown
 from google import genai
 
-# --- 1. Gemini API呼び出し (モデル名自動フォールバック機能付き) ---
+# --- 1. Gemini API呼び出し (リトライ処理付き) ---
 def call_gemini_with_retry(client: genai.Client, prompt: str, max_retries: int = 3) -> any:
-    # 試行するモデル名の候補リスト（順にフォールバック）
-    candidate_models = [
-        'gemini-2.5-flash',
-        'gemini-2.0-flash',
-        'models/gemini-2.5-flash',
-        'gemini-1.5-flash-latest'
-    ]
+    # エラーログで指定された最新指定モデル「gemini-3.6-flash」を使用
+    model_name = 'gemini-3.6-flash'
    
-    last_exception = None
-    for model_name in candidate_models:
-        for attempt in range(max_retries):
-            try:
-                print(f"Gemini API呼び出し試行中: {model_name} (Attempt {attempt + 1})")
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt
-                )
-                return response
-            except Exception as e:
-                print(f"Gemini API Error ({model_name}): {e}")
-                last_exception = e
-                time.sleep(2)
-        print(f"モデル {model_name} で失敗したため次のモデル候補へ切り替えます。")
-       
-    raise last_exception
+    for attempt in range(max_retries):
+        try:
+            print(f"Gemini API呼び出し試行中: {model_name} (Attempt {attempt + 1})")
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt
+            )
+            return response
+        except Exception as e:
+            print(f"Gemini API Error ({model_name}): {e}")
+            if attempt < max_retries - 1:
+                time.sleep(5)
+            else:
+                raise e
 
 # --- 2. 記事生成プロンプト (視認性・改行・太字・箇条書き重視) ---
 def generate_article_with_gemini(client: genai.Client, structured_json: dict) -> str:
